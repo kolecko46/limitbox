@@ -48,9 +48,18 @@
   <div class="wrap">
     <button class="pri" id="btnApply">Aplikovať</button>
     <button id="btnFitSel">Na výber</button>
-    <button id="btnFromView">Z vieweru</button>
+    <button id="btnSetNums">Z čísel</button>
     <button id="btnRemove">Vypnúť</button>
   </div>
+  <div class="hdr" style="margin-top:6px">Aplikovať → klikni do scény, bod bude stred boxu</div>
+  <div class="row" style="margin-top:8px"><label class="l">Veľkosť</label>
+    <input type="range" min="5" max="100" step="1" id="scaleR" value="25">
+    <span id="scaleV" class="hdr" style="width:56px;text-align:right">25 %</span></div>
+  <div class="row"><label class="l">Výška</label>
+    <input type="range" min="10" max="200" step="5" id="aspZ" value="100">
+    <span id="aspZV" class="hdr" style="width:56px;text-align:right">100 %</span></div>
+  <label class="chk"><input type="checkbox" id="alignView"> natočiť podľa pohľadu</label>
+  <div class="hdr">Veľkosť = % šírky aktuálneho záberu (ako RealWorks). Výška = pomer Z voči XY.</div>
 </section>
 
 <section>
@@ -227,13 +236,71 @@
     });
   }
 
+  // --- Umiestnenie klikom (RealWorks štýl) ---
+  let picking = false;
+  const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+  async function startPick() {
+    if (!API) return status('Nie je spojenie s viewerom.', true);
+    if (picking) return stopPick('Zrušené.');
+    picking = true;
+    $('btnApply').textContent = 'Zrušiť klik';
+    try {
+      await API.viewer.activateTool('picking', {
+        instruction: { title: 'Limit Box', text: 'Klikni na bod – bude stredom boxu' },
+        snapTypes: ['point', 'surface', 'edge']
+      });
+      status('Klikni do scény na stred boxu…');
+    } catch (e) { stopPick('Pick nástroj sa nepodarilo zapnúť: ' + (e && e.message || e), true); }
+  }
+
+  async function stopPick(msg, err) {
+    picking = false;
+    $('btnApply').textContent = 'Aplikovať';
+    try { await API.viewer.activateTool('reset'); } catch {}
+    if (msg) status(msg, err);
+  }
+
+  async function placeAt(p) {
+    let cam = null;
+    try { cam = await API.viewer.getCamera(); } catch {}
+    let pt = { x: p.x, y: p.y, z: p.z };
+    // Jednotky picku: kamera je v metroch; ak je bod bližšie po prepočte z mm, je v mm
+    if (cam && cam.position) {
+      const mmPt = { x: p.x / MM, y: p.y / MM, z: p.z / MM };
+      if (dist3(mmPt, cam.position) < dist3(pt, cam.position)) pt = mmPt;
+    }
+    // Šírka záberu v mieste kliknutia
+    let viewW = 20;
+    if (cam) {
+      if (cam.orthoSize && String(cam.projectionType || '').toLowerCase().startsWith('ortho')) viewW = cam.orthoSize * 2;
+      else if (cam.position) viewW = 2 * dist3(pt, cam.position) * Math.tan(((cam.fieldOfView || 60) * Math.PI / 180) / 2);
+    }
+    const s = Math.max(viewW * (+$('scaleR').value / 100), 0.05);
+    const sz = s * (+$('aspZ').value / 100);
+    const rot = ($('alignView').checked && cam && typeof cam.yaw === 'number') ? cam.yaw * 180 / Math.PI : 0;
+    Object.assign(st, {
+      minX: pt.x - s/2, maxX: pt.x + s/2, minY: pt.y - s/2, maxY: pt.y + s/2,
+      minZ: pt.z - sz/2, maxZ: pt.z + sz/2, rot: ((rot + 180) % 360 + 360) % 360 - 180
+    });
+    $('sliceZ').value = fmt(pt.z);
+    render();
+    await stopPick();
+    await apply();
+  }
+
   // --- UI eventy ---
+  const lbl = () => { $('scaleV').textContent = $('scaleR').value + ' %'; $('aspZV').textContent = $('aspZ').value + ' %'; };
+  $('scaleR').oninput = $('aspZ').oninput = lbl; lbl();
+  try { const s = JSON.parse(localStorage.getItem('limitbox:ui') || '{}'); if (s.scale) $('scaleR').value = s.scale; if (s.asp) $('aspZ').value = s.asp; $('alignView').checked = !!s.align; lbl(); } catch {}
+  const saveUi = () => { try { localStorage.setItem('limitbox:ui', JSON.stringify({ scale: $('scaleR').value, asp: $('aspZ').value, align: $('alignView').checked })); } catch {} };
+  $('scaleR').onchange = $('aspZ').onchange = $('alignView').onchange = saveUi;
   ['minX','maxX','minY','maxY','minZ','maxZ','rotZ'].forEach(k => $(k).addEventListener('input', () => { if (k === 'rotZ') $('rotR').value = $('rotZ').value; schedule(); }));
   $('rotR').addEventListener('input', () => { $('rotZ').value = $('rotR').value; schedule(); });
-  $('btnApply').onclick = apply;
+  $('btnApply').onclick = startPick;
+  $('btnSetNums').onclick = apply;
   $('btnFitSel').onclick = fitSelection;
   $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
-  $('btnFromView').onclick = () => status('Nakresli/uprav box natívnym nástrojom vo vieweri – hodnoty sa sem načítajú automaticky.');
   document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.mv.split(','); move(a, +d); });
   document.querySelectorAll('[data-gr]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.gr.split(','); grow(a, +d); });
   $('btnSlice').onclick = () => slice();
@@ -269,6 +336,18 @@
   (async () => {
     try {
       API = await TrimbleConnectWorkspace.connect(window.parent, (event, data) => {
+        if (event === 'viewer.onPicked' && picking) {
+          const d = data && (data.data || data);
+          const p = d && (d.position || (Array.isArray(d) && d[0] && d[0].position));
+          if (p) placeAt(p); else status('Klik nezasiahol model ani mračno – skús znova.', true);
+          return;
+        }
+        if (event === 'viewer.onToolChanged' && picking) {
+          const d = data && (data.data || data);
+          const name = typeof d === 'string' ? d : d && (d.name || d.tool || d.toolName);
+          if (name && name !== 'picking') stopPick('Klik zrušený.');
+          return;
+        }
         if (event === 'viewer.onSectionBoxChanged') {
           if (suppressEvent) return;
           const d = data && (data.data || data);
@@ -278,7 +357,7 @@
       }, 30000);
       $('conn').classList.add('on');
       try { const p = await API.project.getProject(); projectId = p.id || projectId; renderPresets(); } catch {}
-      status('Pripojené. Nastav hranice alebo použi „Na výber".');
+      status('Pripojené. Stlač Aplikovať a klikni do scény.');
     } catch (e) {
       status('Nepodarilo sa pripojiť – otvor to ako extension v 3D Vieweri.', true);
     }
