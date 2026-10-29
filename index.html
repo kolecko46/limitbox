@@ -47,7 +47,7 @@
 <body>
 <header>
   <span class="dot" id="conn"></span>
-  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v3</span></h1>
+  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v4</span></h1>
   <label class="chk"><input type="checkbox" id="live" checked> live</label>
 </header>
 
@@ -58,8 +58,10 @@
     <button id="btnFitSel">Na výber</button>
     <button id="btnSetNums">Z čísel</button>
     <button id="btnRemove">Vypnúť</button>
+    <button id="btnHandles">Úchyty 3D</button>
   </div>
-  <div class="hdr" style="margin-top:6px">Aplikovať → klikni do scény, bod bude stred boxu</div>
+  <div class="hdr" style="margin-top:6px">Aplikovať → klikni do scény, bod bude stred boxu. Potom ťahaj steny boxu priamo v 3D.</div>
+  <label class="chk" style="margin-top:4px"><input type="checkbox" id="autoHandles" checked> po vytvorení hneď zobraziť úchyty</label>
   <div class="row" style="margin-top:8px"><label class="l">Veľkosť</label>
     <input type="range" min="5" max="100" step="1" id="scaleR" value="25">
     <span id="scaleV" class="hdr" style="width:56px;text-align:right">25 %</span></div>
@@ -173,9 +175,24 @@
     try {
       try { await API.viewer.addSectionBox(box); }
       catch { await API.viewer.removeSectionBox(); await API.viewer.addSectionBox(box); }
-      status(`Box: ${fmt(st.maxX-st.minX)} × ${fmt(st.maxY-st.minY)} × ${fmt(st.maxZ-st.minZ)} m`);
+      boxExists = true;
+      if ($('autoHandles').checked) await setHandles(true);
+      status(`Box: ${sizeTxt()}${handlesOn ? ' · ťahaj steny v 3D' : ''}`);
     } catch (e) { status('Chyba pri nastavení boxu: ' + (e && e.message || e), true); }
     setTimeout(() => suppressEvent = false, 300);
+  }
+
+  // --- Interaktívne úchyty v 3D (natívny section box vieweru) ---
+  let handlesOn = false, boxExists = false;
+  const sizeTxt = () => `${fmt(st.maxX-st.minX)} × ${fmt(st.maxY-st.minY)} × ${fmt(st.maxZ-st.minZ)} m`;
+  async function setHandles(on) {
+    if (!API) return;
+    try {
+      if (on) await API.viewer.selectSectionBox(); else await API.viewer.deSelectSectionBox();
+      handlesOn = on;
+    } catch (e) { handlesOn = false; status('Úchyty sa nepodarilo prepnúť: ' + (e && e.message || e), true); }
+    $('btnHandles').classList.toggle('pri', handlesOn);
+    $('btnHandles').classList.toggle('on', handlesOn);
   }
 
   const schedule = () => { if (!$('live').checked) return; clearTimeout(applyTimer); applyTimer = setTimeout(apply, 120); };
@@ -308,7 +325,12 @@
   $('btnApply').onclick = startPick;
   $('btnSetNums').onclick = apply;
   $('btnFitSel').onclick = fitSelection;
-  $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
+  $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); boxExists = false; handlesOn = false; $('btnHandles').classList.remove('pri','on'); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
+  $('btnHandles').onclick = async () => {
+    if (!boxExists) { await apply(); await setHandles(true); }
+    else await setHandles(!handlesOn);
+    status(handlesOn ? 'Úchyty zapnuté – ťahaj steny boxu v 3D.' : 'Úchyty skryté.');
+  };
   document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.mv.split(','); move(a, +d); });
   document.querySelectorAll('[data-gr]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.gr.split(','); grow(a, +d); });
   $('btnSlice').onclick = () => slice();
@@ -357,10 +379,15 @@
           return;
         }
         if (event === 'viewer.onSectionBoxChanged') {
-          if (suppressEvent) return;
+          if (suppressEvent || (data && data.origin && data.origin.isSelf)) return;
           const d = data && (data.data || data);
-          if (d.action === 'removed') status('Box odstránený vo vieweri.');
-          else { fromSectionBox(d.sectionBox); status('Načítané z vieweru.'); }
+          if (d.action === 'removed') { boxExists = false; handlesOn = false; $('btnHandles').classList.remove('pri','on'); status('Box odstránený vo vieweri.'); }
+          else if (d.sectionBox) {
+            boxExists = true;
+            fromSectionBox(d.sectionBox);
+            if (d.sectionBox.sizeZ / MM < 1) $('sliceZ').value = fmt((st.minZ + st.maxZ) / 2);
+            status(`Upravené v 3D: ${sizeTxt()}`);
+          }
         }
       }, 30000);
       $('conn').classList.add('on');
