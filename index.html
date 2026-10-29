@@ -6,15 +6,17 @@
 <title>Limit Box</title>
 <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
 <style>
-  :root{--bg:#1e2227;--panel:#262b31;--line:#363c44;--fg:#e6e8eb;--mut:#9aa3ad;--acc:#4ea1ff;--x:#ff6b6b;--y:#5fd38d;--z:#4ea1ff;}
+  /* Farby zladené s XYZ Measure */
+  :root{--bg:#fafafa;--panel:#ffffff;--line:#bdbdbd;--sep:#e0e0e0;--fg:#212121;--mut:#757575;--acc:#005f9e;--acc-h:#004a7c;
+        --on:#f9a825;--on-h:#f59e0b;--x:#d32f2f;--y:#2e7d32;--z:#1565c0;--font:"Segoe UI",Roboto,Arial,sans-serif;}
   *{box-sizing:border-box}
-  body{margin:0;font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
-  header{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
-  header h1{font-size:14px;margin:0;flex:1}
-  .dot{width:8px;height:8px;border-radius:50%;background:#777}
-  .dot.on{background:#5fd38d}
-  section{padding:10px 12px;border-bottom:1px solid var(--line)}
-  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px}
+  body{margin:0;font:13px/1.4 var(--font);background:var(--bg);color:var(--fg)}
+  header{padding:10px 12px;border-bottom:1px solid var(--sep);display:flex;align-items:center;gap:8px}
+  header h1{font-size:15px;margin:0;flex:1;color:var(--acc)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}
+  .dot.on{background:var(--y)}
+  section{padding:10px 12px;border-bottom:1px solid var(--sep)}
+  h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:0 0 8px}
   .row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
   .ax{width:14px;font-weight:700}
   .ax.x{color:var(--x)}.ax.y{color:var(--y)}.ax.z{color:var(--z)}
@@ -22,18 +24,24 @@
   input[type=number]{width:100%;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:4px 6px;border-radius:4px;font:inherit}
   input[type=range]{flex:1;accent-color:var(--acc)}
   input[type=text]{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:4px 6px;border-radius:4px;font:inherit}
-  button{background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:5px 8px;border-radius:4px;cursor:pointer;font:inherit;white-space:nowrap}
-  button:hover{border-color:var(--acc)}
+  button{background:#fff;border:1px solid var(--line);color:var(--fg);padding:7px 10px;border-radius:4px;cursor:pointer;font:12px var(--font);white-space:nowrap}
+  button:hover{background:#f0f0f0}
   button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
-  button.sm{padding:3px 6px;font-size:12px}
+  button.pri:hover{background:var(--acc-h)}
+  button.pri.on{background:var(--on);border-color:var(--on);color:var(--fg)}
+  button.pri.on:hover{background:var(--on-h)}
+  button.sm{padding:3px 7px;font-size:11px}
   .grid{display:grid;grid-template-columns:14px 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px}
   .hdr{color:var(--mut);font-size:11px}
   .wrap{display:flex;flex-wrap:wrap;gap:6px}
-  .preset{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .preset{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--sep)}
   .preset span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #status{font-size:12px;color:var(--mut);padding:8px 12px;min-height:30px}
-  .chk{display:flex;align-items:center;gap:6px;color:var(--mut)}
-  kbd{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px}
+  #status{font-size:12px;margin:10px 12px;padding:8px 10px;border-radius:4px;background:#e3f2fd;min-height:34px}
+  #status.active{background:#fff8e1;border-left:3px solid var(--on)}
+  #status.error{background:#ffebee;border-left:3px solid var(--x)}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px}
+  input[type=checkbox]{accent-color:var(--acc)}
+  kbd{background:#eee;border:1px solid var(--sep);border-radius:3px;padding:0 4px;font-size:11px}
 </style>
 </head>
 <body>
@@ -116,7 +124,7 @@
   // Stav v metroch: min/max v lokálnych osiach boxu, rotácia okolo Z v stupňoch
   const st = { minX:-5, maxX:5, minY:-5, maxY:5, minZ:-1, maxZ:3, rot:0 };
 
-  const status = (t, err) => { $('status').textContent = t; $('status').style.color = err ? '#ff8f8f' : ''; };
+  const status = (t, err, active) => { const s = $('status'); s.textContent = t; s.className = err ? 'error' : active ? 'active' : ''; };
   const fmt = v => Math.round(v * 1000) / 1000;
 
   function render() {
@@ -244,19 +252,19 @@
     if (!API) return status('Nie je spojenie s viewerom.', true);
     if (picking) return stopPick('Zrušené.');
     picking = true;
-    $('btnApply').textContent = 'Zrušiť klik';
+    $('btnApply').textContent = 'Zrušiť klik'; $('btnApply').classList.add('on');
     try {
       await API.viewer.activateTool('picking', {
         instruction: { title: 'Limit Box', text: 'Klikni na bod – bude stredom boxu' },
         snapTypes: ['point', 'surface', 'edge']
       });
-      status('Klikni do scény na stred boxu…');
+      status('Klikni do scény na stred boxu…', false, true);
     } catch (e) { stopPick('Pick nástroj sa nepodarilo zapnúť: ' + (e && e.message || e), true); }
   }
 
   async function stopPick(msg, err) {
     picking = false;
-    $('btnApply').textContent = 'Aplikovať';
+    $('btnApply').textContent = 'Aplikovať'; $('btnApply').classList.remove('on');
     try { await API.viewer.activateTool('reset'); } catch {}
     if (msg) status(msg, err);
   }
