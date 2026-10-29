@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limit Box</title>
+<script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+<style>
+  :root{--bg:#1e2227;--panel:#262b31;--line:#363c44;--fg:#e6e8eb;--mut:#9aa3ad;--acc:#4ea1ff;--x:#ff6b6b;--y:#5fd38d;--z:#4ea1ff;}
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+  header{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  header h1{font-size:14px;margin:0;flex:1}
+  .dot{width:8px;height:8px;border-radius:50%;background:#777}
+  .dot.on{background:#5fd38d}
+  section{padding:10px 12px;border-bottom:1px solid var(--line)}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px}
+  .row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+  .ax{width:14px;font-weight:700}
+  .ax.x{color:var(--x)}.ax.y{color:var(--y)}.ax.z{color:var(--z)}
+  label.l{width:52px;color:var(--mut);font-size:12px}
+  input[type=number]{width:100%;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:4px 6px;border-radius:4px;font:inherit}
+  input[type=range]{flex:1;accent-color:var(--acc)}
+  input[type=text]{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:4px 6px;border-radius:4px;font:inherit}
+  button{background:var(--panel);border:1px solid var(--line);color:var(--fg);padding:5px 8px;border-radius:4px;cursor:pointer;font:inherit;white-space:nowrap}
+  button:hover{border-color:var(--acc)}
+  button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.sm{padding:3px 6px;font-size:12px}
+  .grid{display:grid;grid-template-columns:14px 1fr 1fr;gap:6px;align-items:center;margin-bottom:6px}
+  .hdr{color:var(--mut);font-size:11px}
+  .wrap{display:flex;flex-wrap:wrap;gap:6px}
+  .preset{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .preset span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #status{font-size:12px;color:var(--mut);padding:8px 12px;min-height:30px}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--mut)}
+  kbd{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="conn"></span>
+  <h1>Limit Box</h1>
+  <label class="chk"><input type="checkbox" id="live" checked> live</label>
+</header>
+
+<section>
+  <h2>Box</h2>
+  <div class="wrap">
+    <button class="pri" id="btnApply">Aplikovať</button>
+    <button id="btnFitSel">Na výber</button>
+    <button id="btnFromView">Z vieweru</button>
+    <button id="btnRemove">Vypnúť</button>
+  </div>
+</section>
+
+<section>
+  <h2>Hranice (m)</h2>
+  <div class="grid"><span></span><span class="hdr">min</span><span class="hdr">max</span></div>
+  <div class="grid"><span class="ax x">X</span><input type="number" step="0.01" id="minX"><input type="number" step="0.01" id="maxX"></div>
+  <div class="grid"><span class="ax y">Y</span><input type="number" step="0.01" id="minY"><input type="number" step="0.01" id="maxY"></div>
+  <div class="grid"><span class="ax z">Z</span><input type="number" step="0.01" id="minZ"><input type="number" step="0.01" id="maxZ"></div>
+  <div class="row"><label class="l">Rot Z°</label><input type="range" min="-180" max="180" step="0.5" id="rotR"><input type="number" step="0.5" id="rotZ" style="width:70px"></div>
+</section>
+
+<section>
+  <h2>Posun / zmena veľkosti</h2>
+  <div class="row"><label class="l">Krok</label><input type="number" step="0.01" id="step" value="0.10"><span class="hdr">m</span></div>
+  <div class="row"><span class="ax x">X</span>
+    <button class="sm" data-mv="x,-1">◀</button><button class="sm" data-mv="x,1">▶</button>
+    <button class="sm" data-gr="x,-1">−</button><button class="sm" data-gr="x,1">+</button></div>
+  <div class="row"><span class="ax y">Y</span>
+    <button class="sm" data-mv="y,-1">◀</button><button class="sm" data-mv="y,1">▶</button>
+    <button class="sm" data-gr="y,-1">−</button><button class="sm" data-gr="y,1">+</button></div>
+  <div class="row"><span class="ax z">Z</span>
+    <button class="sm" data-mv="z,-1">▼</button><button class="sm" data-mv="z,1">▲</button>
+    <button class="sm" data-gr="z,-1">−</button><button class="sm" data-gr="z,1">+</button></div>
+  <div class="hdr">◀▶ posun, −/+ zmenšiť/zväčšiť symetricky</div>
+</section>
+
+<section>
+  <h2>Výškový rez (slice)</h2>
+  <div class="row"><label class="l">Hrúbka</label><input type="number" step="0.01" id="sliceT" value="0.20"><span class="hdr">m</span></div>
+  <div class="row"><label class="l">Výška</label><input type="number" step="0.01" id="sliceZ"><span class="hdr">m</span></div>
+  <div class="wrap">
+    <button id="btnSlice">Zapnúť rez</button>
+    <button id="sliceDn">▼ o hrúbku</button>
+    <button id="sliceUp">▲ o hrúbku</button>
+  </div>
+  <div class="hdr" style="margin-top:6px"><kbd>PgUp</kbd>/<kbd>PgDn</kbd> posun rezu, keď je panel aktívny</div>
+</section>
+
+<section>
+  <h2>Presety</h2>
+  <div class="row"><input type="text" id="presetName" placeholder="napr. 1.NP pôdorys"><button id="btnSave">Uložiť</button></div>
+  <div id="presets"></div>
+  <div class="wrap" style="margin-top:6px"><button class="sm" id="btnExport">Export JSON</button><button class="sm" id="btnImport">Import JSON</button></div>
+</section>
+
+<div id="status">Pripájam sa k vieweru…</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const MM = 1000; // SectionBox je v mm, UI v metroch
+  let API = null, projectId = 'default', applyTimer = null, suppressEvent = false;
+
+  // Stav v metroch: min/max v lokálnych osiach boxu, rotácia okolo Z v stupňoch
+  const st = { minX:-5, maxX:5, minY:-5, maxY:5, minZ:-1, maxZ:3, rot:0 };
+
+  const status = (t, err) => { $('status').textContent = t; $('status').style.color = err ? '#ff8f8f' : ''; };
+  const fmt = v => Math.round(v * 1000) / 1000;
+
+  function render() {
+    for (const k of ['minX','maxX','minY','maxY','minZ','maxZ']) $(k).value = fmt(st[k]);
+    $('rotZ').value = fmt(st.rot); $('rotR').value = st.rot;
+  }
+
+  function readInputs() {
+    for (const k of ['minX','maxX','minY','maxY','minZ','maxZ']) {
+      const v = parseFloat($(k).value); if (!isNaN(v)) st[k] = v;
+    }
+    for (const a of ['X','Y','Z']) if (st['min'+a] > st['max'+a]) [st['min'+a], st['max'+a]] = [st['max'+a], st['min'+a]];
+    const r = parseFloat($('rotZ').value); if (!isNaN(r)) st.rot = r;
+  }
+
+  // stav -> SectionBox (stred + rozmery + quaternion)
+  function toSectionBox() {
+    const h = st.rot * Math.PI / 360;
+    return {
+      positionX: (st.minX + st.maxX) / 2 * MM,
+      positionY: (st.minY + st.maxY) / 2 * MM,
+      positionZ: (st.minZ + st.maxZ) / 2 * MM,
+      sizeX: Math.max(st.maxX - st.minX, 0.001) * MM,
+      sizeY: Math.max(st.maxY - st.minY, 0.001) * MM,
+      sizeZ: Math.max(st.maxZ - st.minZ, 0.001) * MM,
+      rotationX: 0, rotationY: 0, rotationZ: Math.sin(h), rotationW: Math.cos(h)
+    };
+  }
+
+  // SectionBox -> stav
+  function fromSectionBox(b) {
+    if (!b) return;
+    const cx = b.positionX / MM, cy = b.positionY / MM, cz = b.positionZ / MM;
+    const sx = b.sizeX / MM, sy = b.sizeY / MM, sz = b.sizeZ / MM;
+    Object.assign(st, { minX: cx - sx/2, maxX: cx + sx/2, minY: cy - sy/2, maxY: cy + sy/2, minZ: cz - sz/2, maxZ: cz + sz/2 });
+    // len rotácia okolo Z (Potree štýl); ak má box aj X/Y rotáciu, ignorujeme ju
+    st.rot = 2 * Math.atan2(b.rotationZ || 0, b.rotationW == null ? 1 : b.rotationW) * 180 / Math.PI;
+    render();
+  }
+
+  async function apply() {
+    if (!API) return status('Nie je spojenie s viewerom.', true);
+    readInputs();
+    const box = toSectionBox();
+    suppressEvent = true;
+    try {
+      try { await API.viewer.addSectionBox(box); }
+      catch { await API.viewer.removeSectionBox(); await API.viewer.addSectionBox(box); }
+      status(`Box: ${fmt(st.maxX-st.minX)} × ${fmt(st.maxY-st.minY)} × ${fmt(st.maxZ-st.minZ)} m`);
+    } catch (e) { status('Chyba pri nastavení boxu: ' + (e && e.message || e), true); }
+    setTimeout(() => suppressEvent = false, 300);
+  }
+
+  const schedule = () => { if (!$('live').checked) return; clearTimeout(applyTimer); applyTimer = setTimeout(apply, 120); };
+
+  // --- Fit na výber (BIM objekty) ---
+  async function fitSelection() {
+    try {
+      const sel = await API.viewer.getSelection();
+      if (!sel || !sel.length) return status('Nič nie je vybrané.', true);
+      let mn = [Infinity,Infinity,Infinity], mx = [-Infinity,-Infinity,-Infinity];
+      for (const m of sel) {
+        const ids = m.objectRuntimeIds || [];
+        if (!ids.length) continue;
+        const bbs = await API.viewer.getObjectBoundingBoxes(m.modelId, ids);
+        for (const o of bbs) {
+          const bb = o.boundingBox; if (!bb) continue;
+          ['x','y','z'].forEach((a,i) => { mn[i] = Math.min(mn[i], bb.min[a]); mx[i] = Math.max(mx[i], bb.max[a]); });
+        }
+      }
+      if (!isFinite(mn[0])) return status('Výber nemá bounding box (body mračna sa takto vybrať nedajú).', true);
+      const pad = parseFloat($('step').value) || 0;
+      Object.assign(st, { minX: mn[0]-pad, maxX: mx[0]+pad, minY: mn[1]-pad, maxY: mx[1]+pad, minZ: mn[2]-pad, maxZ: mx[2]+pad, rot: 0 });
+      render(); apply();
+    } catch (e) { status('Fit zlyhal: ' + (e && e.message || e), true); }
+  }
+
+  // --- Posun / rast ---
+  function move(axis, dir) {
+    readInputs(); const s = (parseFloat($('step').value) || 0.1) * dir, A = axis.toUpperCase();
+    if (axis !== 'z' && st.rot) { // posun v lokálnych osiach boxu
+      const r = st.rot * Math.PI / 180, dx = axis === 'x' ? Math.cos(r)*s : -Math.sin(r)*s, dy = axis === 'x' ? Math.sin(r)*s : Math.cos(r)*s;
+      st.minX += dx; st.maxX += dx; st.minY += dy; st.maxY += dy;
+    } else { st['min'+A] += s; st['max'+A] += s; }
+    render(); apply();
+  }
+  function grow(axis, dir) {
+    readInputs(); const s = (parseFloat($('step').value) || 0.1) * dir, A = axis.toUpperCase();
+    st['min'+A] -= s; st['max'+A] += s;
+    if (st['max'+A] - st['min'+A] < 0.01) { const c = (st['min'+A]+st['max'+A])/2; st['min'+A] = c-0.005; st['max'+A] = c+0.005; }
+    render(); apply();
+  }
+
+  // --- Slice ---
+  function slice(z) {
+    readInputs();
+    const t = parseFloat($('sliceT').value) || 0.2;
+    if (z == null) z = parseFloat($('sliceZ').value);
+    if (isNaN(z)) z = (st.minZ + st.maxZ) / 2;
+    st.minZ = z - t/2; st.maxZ = z + t/2;
+    $('sliceZ').value = fmt(z);
+    render(); apply();
+  }
+  const sliceStep = d => { const t = parseFloat($('sliceT').value) || 0.2; const z = parseFloat($('sliceZ').value); slice((isNaN(z) ? (st.minZ+st.maxZ)/2 : z) + d*t); };
+
+  // --- Presety ---
+  const key = () => 'limitbox:' + projectId;
+  const loadPresets = () => { try { return JSON.parse(localStorage.getItem(key())) || []; } catch { return []; } };
+  const savePresets = p => { try { localStorage.setItem(key(), JSON.stringify(p)); } catch {} renderPresets(); };
+  function renderPresets() {
+    const p = loadPresets(), el = $('presets'); el.innerHTML = '';
+    if (!p.length) { el.innerHTML = '<div class="hdr">Žiadne uložené presety</div>'; return; }
+    p.forEach((it, i) => {
+      const d = document.createElement('div'); d.className = 'preset';
+      d.innerHTML = `<span title="${it.name}">${it.name}</span><button class="sm" data-load="${i}">Načítať</button><button class="sm" data-del="${i}">✕</button>`;
+      el.appendChild(d);
+    });
+  }
+
+  // --- UI eventy ---
+  ['minX','maxX','minY','maxY','minZ','maxZ','rotZ'].forEach(k => $(k).addEventListener('input', () => { if (k === 'rotZ') $('rotR').value = $('rotZ').value; schedule(); }));
+  $('rotR').addEventListener('input', () => { $('rotZ').value = $('rotR').value; schedule(); });
+  $('btnApply').onclick = apply;
+  $('btnFitSel').onclick = fitSelection;
+  $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
+  $('btnFromView').onclick = () => status('Nakresli/uprav box natívnym nástrojom vo vieweri – hodnoty sa sem načítajú automaticky.');
+  document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.mv.split(','); move(a, +d); });
+  document.querySelectorAll('[data-gr]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.gr.split(','); grow(a, +d); });
+  $('btnSlice').onclick = () => slice();
+  $('sliceUp').onclick = () => sliceStep(1);
+  $('sliceDn').onclick = () => sliceStep(-1);
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+    if (e.key === 'PageUp') { e.preventDefault(); sliceStep(1); }
+    if (e.key === 'PageDown') { e.preventDefault(); sliceStep(-1); }
+  });
+  $('btnSave').onclick = () => {
+    readInputs(); const name = $('presetName').value.trim() || `Box ${new Date().toLocaleString('sk-SK')}`;
+    const p = loadPresets(); p.push({ name, ...st }); savePresets(p); $('presetName').value = '';
+  };
+  $('presets').onclick = e => {
+    const l = e.target.dataset.load, d = e.target.dataset.del, p = loadPresets();
+    if (l != null) { const { name, ...v } = p[+l]; Object.assign(st, v); render(); apply(); }
+    if (d != null) { p.splice(+d, 1); savePresets(p); }
+  };
+  $('btnExport').onclick = () => {
+    const blob = new Blob([JSON.stringify(loadPresets(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'limitbox-presets.json'; a.click();
+  };
+  $('btnImport').onclick = () => {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = '.json';
+    i.onchange = async () => { try { const arr = JSON.parse(await i.files[0].text()); if (Array.isArray(arr)) savePresets(loadPresets().concat(arr)); } catch { status('Neplatný JSON.', true); } };
+    i.click();
+  };
+
+  render(); renderPresets();
+
+  // --- Pripojenie k Trimble Connect ---
+  (async () => {
+    try {
+      API = await TrimbleConnectWorkspace.connect(window.parent, (event, data) => {
+        if (event === 'viewer.onSectionBoxChanged') {
+          if (suppressEvent) return;
+          const d = data && (data.data || data);
+          if (d.action === 'removed') status('Box odstránený vo vieweri.');
+          else { fromSectionBox(d.sectionBox); status('Načítané z vieweru.'); }
+        }
+      }, 30000);
+      $('conn').classList.add('on');
+      try { const p = await API.project.getProject(); projectId = p.id || projectId; renderPresets(); } catch {}
+      status('Pripojené. Nastav hranice alebo použi „Na výber".');
+    } catch (e) {
+      status('Nepodarilo sa pripojiť – otvor to ako extension v 3D Vieweri.', true);
+    }
+  })();
+})();
+</script>
+</body>
+</html>
