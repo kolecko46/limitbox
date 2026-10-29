@@ -47,7 +47,7 @@
 <body>
 <header>
   <span class="dot" id="conn"></span>
-  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v5</span></h1>
+  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v6</span></h1>
   <label class="chk"><input type="checkbox" id="live" checked> live</label>
 </header>
 
@@ -73,9 +73,18 @@
 </section>
 
 <section>
-  <h2>UCS (XYZ Measure)</h2>
-  <label class="chk"><input type="checkbox" id="useUcs" checked> zarovnať box s aktívnym UCS</label>
-  <div id="ucsInfo" class="hdr" style="margin-top:4px">UCS nenájdený – box je v globálnych osiach.</div>
+  <h2>Os natočenia</h2>
+  <div class="wrap">
+    <button class="pri" id="btnAxis">📐 Nakresliť os</button>
+    <button id="btnAxisRot" disabled>↻ 90°</button>
+    <button id="btnAxisClear" disabled>🗑 Zrušiť os</button>
+  </div>
+  <div class="row" style="margin-top:6px"><label class="l">Uhol X′</label>
+    <input type="number" step="0.0001" id="axisAngle" disabled><span class="hdr">°</span></div>
+  <label class="chk"><input type="checkbox" id="useAxis" checked> zarovnať box s osou</label>
+  <label class="chk"><input type="checkbox" id="showAxis" checked> zobraziť os v 3D</label>
+  <div id="axisInfo" class="hdr" style="margin-top:4px">Bez osi – box je v globálnych osiach.</div>
+  <div class="hdr">Klik 1 = počiatok, klik 2 = smer X′ (napr. pozdĺž steny). Z ostáva zvislá.</div>
 </section>
 
 <section>
@@ -149,11 +158,11 @@
   }
 
   // stav -> SectionBox (stred + rozmery + quaternion)
-  // --- Rám (globálny alebo UCS z XYZ Measure) ---
+  // --- Rám (globálny alebo vlastná os) ---
   // Stav st je v lokálnych súradniciach rámu: g = o + R·l, R = [ex ey ez] (stĺpce)
   const ID = { ex:{x:1,y:0,z:0}, ey:{x:0,y:1,z:0}, ez:{x:0,y:0,z:1}, o:{x:0,y:0,z:0}, q:{x:0,y:0,z:0,w:1} };
-  let UCS = null;
-  const frame = () => (UCS && $('useUcs').checked) ? UCS : ID;
+  let UCS = null; // { theta (rad), o (m), ex, ey, ez, q, p1, p2 }
+  const frame = () => (UCS && $('useAxis').checked) ? UCS : ID;
   const toG = (F, l) => ({ x: F.o.x + F.ex.x*l.x + F.ey.x*l.y + F.ez.x*l.z,
                            y: F.o.y + F.ex.y*l.x + F.ey.y*l.y + F.ez.y*l.z,
                            z: F.o.z + F.ex.z*l.x + F.ey.z*l.y + F.ez.z*l.z });
@@ -201,37 +210,58 @@
     render();
   }
 
-  // --- Načítanie UCS z XYZ Measure (zdieľaný localStorage na rovnakej doméne) ---
-  const ucsKey = () => 'xyzMeasure.axis.' + projectId;
-  function parseUcs() {
-    let s = null;
-    try { s = JSON.parse(localStorage.getItem(ucsKey()) || 'null'); } catch {}
-    if (!s || typeof s.theta !== 'number' || !s.enabled) return null;
-    let ex, ey, ez;
-    if (s.mode === '3d' && s.ex && s.ey && s.ez) { ex = norm(s.ex); ey = norm(s.ey); ez = norm(s.ez); }
-    else { const c = Math.cos(s.theta), n = Math.sin(s.theta); ex = { x: c, y: n, z: 0 }; ey = { x: -n, y: c, z: 0 }; ez = { x: 0, y: 0, z: 1 }; }
-    const o = s.origin ? { x: s.origin.x / MM, y: s.origin.y / MM, z: s.origin.z / MM } : { x: 0, y: 0, z: 0 }; // XYZ Measure: mm
-    const deg = s.mode === '3d' ? null : ((s.theta * 180 / Math.PI) % 360);
-    return { ex, ey, ez, o, q: qFromBasis(ex, ey, ez), mode: s.mode === '3d' ? '3d' : '2d', deg, sig: JSON.stringify([s.mode, s.theta, s.ex, s.ey, s.ez, s.origin]) };
+  // --- Vlastná os: 2 body v pôdoryse, Z zvislá ---
+  const axisKey = () => 'limitbox:axis:' + projectId;
+  let axisMarkupId = null;
+  function makeAxis(theta, o, p1, p2) {
+    const c = Math.cos(theta), s = Math.sin(theta);
+    const ex = { x: c, y: s, z: 0 }, ey = { x: -s, y: c, z: 0 }, ez = { x: 0, y: 0, z: 1 };
+    return { theta, o, ex, ey, ez, q: { x: 0, y: 0, z: Math.sin(theta/2), w: Math.cos(theta/2) }, p1, p2 };
   }
-  function refreshUcs(snap) {
-    const old = frame(), keep = toSectionBox(); // aktuálny box v globále
-    const n = parseUcs();
-    if ((n && n.sig) === (UCS && UCS.sig)) { updateUcsInfo(); return; }
-    UCS = n;
-    fromSectionBox(keep);           // prepočet do nového rámu (stred ostane)
-    if (snap && frame() !== ID) st.rot = 0; // strany boxu pozdĺž osí UCS
-    render(); updateUcsInfo();
-    if (snap && boxExists && frame() !== old) apply();
+  // nastaví novú os; existujúci box si ponechá stred a otočí sa pozdĺž osi
+  async function setAxis(ax, snap = true) {
+    const keep = toSectionBox();
+    UCS = ax;
+    fromSectionBox(keep);
+    if (snap && frame() !== ID) st.rot = 0;
+    render(); updateAxisUI(); saveAxis();
+    await drawAxis();
+    if (boxExists) await apply();
   }
-  function updateUcsInfo() {
-    const on = frame() !== ID;
-    $('limitsHdr').textContent = on ? 'Hranice v UCS (m, od počiatku UCS)' : 'Hranice (m)';
-    $('ucsInfo').textContent = !UCS ? 'UCS nenájdený alebo nie je aktivovaný v XYZ Measure – box je v globálnych osiach.'
-      : !on ? 'UCS je k dispozícii, zarovnanie je vypnuté.'
-      : UCS.mode === '3d' ? 'Box zarovnaný s UCS (3D, naklonený).' : `Box zarovnaný s UCS (2D, X′ ${UCS.deg.toFixed(4)}°).`;
+  function saveAxis() {
+    try { if (UCS) localStorage.setItem(axisKey(), JSON.stringify({ theta: UCS.theta, o: UCS.o, p1: UCS.p1, p2: UCS.p2 }));
+          else localStorage.removeItem(axisKey()); } catch {}
   }
-  window.addEventListener('storage', e => { if (e.key === ucsKey()) refreshUcs(true); });
+  function loadAxis() {
+    try { const s = JSON.parse(localStorage.getItem(axisKey()) || 'null');
+          if (s && typeof s.theta === 'number') UCS = makeAxis(s.theta, s.o || { x: 0, y: 0, z: 0 }, s.p1, s.p2); } catch {}
+    updateAxisUI();
+  }
+  function updateAxisUI() {
+    const on = frame() !== ID, deg = UCS ? (((UCS.theta * 180 / Math.PI) % 360) + 360) % 360 : 0;
+    $('limitsHdr').textContent = on ? 'Hranice v osiach X′Y′Z (m, od počiatku osi)' : 'Hranice (m)';
+    $('axisAngle').disabled = $('btnAxisRot').disabled = $('btnAxisClear').disabled = !UCS;
+    if (document.activeElement !== $('axisAngle')) $('axisAngle').value = UCS ? deg.toFixed(4) : '';
+    $('axisInfo').textContent = !UCS ? 'Bez osi – box je v globálnych osiach.'
+      : on ? `Box zarovnaný s osou X′ ${deg.toFixed(4)}°.` : 'Os je nastavená, zarovnanie je vypnuté.';
+  }
+  async function drawAxis() {
+    if (!API || !API.markup) return;
+    if (axisMarkupId != null) { try { await API.markup.removeMarkups([axisMarkupId]); } catch {} axisMarkupId = null; }
+    if (!UCS || !UCS.p1 || !$('showAxis').checked) return;
+    // šípka od počiatku v smere X′, aspoň 2 m dlhá
+    const L = Math.max(dist3(UCS.p1, UCS.p2 || UCS.p1), 2);
+    const e = { x: UCS.p1.x + UCS.ex.x * L, y: UCS.p1.y + UCS.ex.y * L, z: UCS.p1.z };
+    try {
+      const r = await API.markup.addArrowMarkups([{
+        color: { r: 214, g: 58, b: 84, a: 255 },
+        start: { positionX: UCS.p1.x * MM, positionY: UCS.p1.y * MM, positionZ: UCS.p1.z * MM },
+        end:   { positionX: e.x * MM, positionY: e.y * MM, positionZ: e.z * MM }
+      }]);
+      if (r && r[0] && r[0].id != null) axisMarkupId = r[0].id;
+    } catch {}
+  }
+
 
   async function apply() {
     if (!API) return status('Nie je spojenie s viewerom.', true);
@@ -332,13 +362,13 @@
   }
 
   // --- Umiestnenie klikom (RealWorks štýl) ---
-  let picking = false;
+  let picking = false, pickMode = 'center', axisPts = [];
   const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
   async function startPick() {
     if (!API) return status('Nie je spojenie s viewerom.', true);
     if (picking) return stopPick('Zrušené.');
-    picking = true;
+    picking = true; pickMode = 'center';
     $('btnApply').textContent = 'Zrušiť klik'; $('btnApply').classList.add('on');
     try {
       await API.viewer.activateTool('picking', {
@@ -350,10 +380,36 @@
   }
 
   async function stopPick(msg, err) {
-    picking = false;
+    picking = false; axisPts = [];
     $('btnApply').textContent = 'Aplikovať'; $('btnApply').classList.remove('on');
+    $('btnAxis').textContent = '📐 Nakresliť os'; $('btnAxis').classList.remove('on');
     try { await API.viewer.activateTool('reset'); } catch {}
     if (msg) status(msg, err);
+  }
+
+  async function startAxisPick() {
+    if (!API) return status('Nie je spojenie s viewerom.', true);
+    if (picking) { const was = pickMode; await stopPick('Zrušené.'); if (was === 'axis') return; }
+    picking = true; pickMode = 'axis'; axisPts = [];
+    $('btnAxis').textContent = '✕ Zrušiť'; $('btnAxis').classList.add('on');
+    try {
+      await API.viewer.activateTool('picking', {
+        instruction: { title: 'Limit Box – os', text: 'Klikni na počiatok osi, potom na bod v smere X′' },
+        snapTypes: ['point', 'surface', 'edge']
+      });
+      status('Os: klikni na POČIATOK…', false, true);
+    } catch (e) { stopPick('Pick nástroj sa nepodarilo zapnúť: ' + (e && e.message || e), true); }
+  }
+
+  async function axisPick(p) {
+    axisPts.push({ x: p.x, y: p.y, z: p.z });
+    if (axisPts.length === 1) return status('Os: klikni na bod v SMERE X′ (napr. ďalej pozdĺž steny)…', false, true);
+    const [a, b] = axisPts;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 0.01) { axisPts = [a]; return status('Body sú v pôdoryse príliš blízko – klikni na druhý bod ďalej.', true); }
+    const theta = Math.atan2(b.y - a.y, b.x - a.x);
+    await stopPick();
+    await setAxis(makeAxis(theta, { ...a }, a, b));
+    status(`Os nastavená: X′ ${((((theta * 180 / Math.PI) % 360) + 360) % 360).toFixed(4)}°`);
   }
 
   async function placeAt(p) {
@@ -396,7 +452,12 @@
   $('rotR').addEventListener('input', () => { $('rotZ').value = $('rotR').value; schedule(); });
   $('btnApply').onclick = startPick;
   $('btnSetNums').onclick = apply;
-  $('useUcs').onchange = () => { const keep = toSectionBox($('useUcs').checked ? ID : (UCS || ID)); fromSectionBox(keep); if (frame() !== ID) st.rot = 0; render(); updateUcsInfo(); if (boxExists) apply(); };
+  $('btnAxis').onclick = startAxisPick;
+  $('btnAxisRot').onclick = () => { if (UCS) setAxis(makeAxis(UCS.theta + Math.PI / 2, UCS.o, UCS.p1, UCS.p2)); };
+  $('btnAxisClear').onclick = () => setAxis(null);
+  $('axisAngle').onchange = () => { const d = parseFloat($('axisAngle').value); if (UCS && !isNaN(d)) setAxis(makeAxis(d * Math.PI / 180, UCS.o, UCS.p1, UCS.p2)); };
+  $('useAxis').onchange = () => { const keep = toSectionBox($('useAxis').checked ? ID : (UCS || ID)); fromSectionBox(keep); if (frame() !== ID) st.rot = 0; render(); updateAxisUI(); if (boxExists) apply(); };
+  $('showAxis').onchange = drawAxis;
   $('btnFitSel').onclick = fitSelection;
   $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); boxExists = false; handlesOn = false; $('btnHandles').classList.remove('pri','on'); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
   $('btnHandles').onclick = async () => {
@@ -442,7 +503,8 @@
         if (event === 'viewer.onPicked' && picking) {
           const d = data && (data.data || data);
           const p = d && (d.position || (Array.isArray(d) && d[0] && d[0].position));
-          if (p) placeAt(p); else status('Klik nezasiahol model ani mračno – skús znova.', true);
+          if (!p) status('Klik nezasiahol model ani mračno – skús znova.', true);
+          else if (pickMode === 'axis') axisPick(p); else placeAt(p);
           return;
         }
         if (event === 'viewer.onToolChanged' && picking) {
@@ -465,7 +527,7 @@
       }, 30000);
       $('conn').classList.add('on');
       try { const p = await API.project.getProject(); projectId = p.id || projectId; renderPresets(); } catch {}
-      refreshUcs(false); setInterval(() => refreshUcs(true), 1500); // záloha, ak storage event nepríde
+      loadAxis(); render(); drawAxis();
       status('Pripojené. Stlač Aplikovať a klikni do scény.');
     } catch (e) {
       status('Nepodarilo sa pripojiť – otvor to ako extension v 3D Vieweri.', true);
