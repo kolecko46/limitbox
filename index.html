@@ -47,7 +47,7 @@
 <body>
 <header>
   <span class="dot" id="conn"></span>
-  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v4</span></h1>
+  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v5</span></h1>
   <label class="chk"><input type="checkbox" id="live" checked> live</label>
 </header>
 
@@ -73,7 +73,13 @@
 </section>
 
 <section>
-  <h2>Hranice (m)</h2>
+  <h2>UCS (XYZ Measure)</h2>
+  <label class="chk"><input type="checkbox" id="useUcs" checked> zarovnať box s aktívnym UCS</label>
+  <div id="ucsInfo" class="hdr" style="margin-top:4px">UCS nenájdený – box je v globálnych osiach.</div>
+</section>
+
+<section>
+  <h2 id="limitsHdr">Hranice (m)</h2>
   <div class="grid"><span></span><span class="hdr">min</span><span class="hdr">max</span></div>
   <div class="grid"><span class="ax x">X</span><input type="number" step="0.01" id="minX"><input type="number" step="0.01" id="maxX"></div>
   <div class="grid"><span class="ax y">Y</span><input type="number" step="0.01" id="minY"><input type="number" step="0.01" id="maxY"></div>
@@ -143,29 +149,89 @@
   }
 
   // stav -> SectionBox (stred + rozmery + quaternion)
-  function toSectionBox() {
+  // --- Rám (globálny alebo UCS z XYZ Measure) ---
+  // Stav st je v lokálnych súradniciach rámu: g = o + R·l, R = [ex ey ez] (stĺpce)
+  const ID = { ex:{x:1,y:0,z:0}, ey:{x:0,y:1,z:0}, ez:{x:0,y:0,z:1}, o:{x:0,y:0,z:0}, q:{x:0,y:0,z:0,w:1} };
+  let UCS = null;
+  const frame = () => (UCS && $('useUcs').checked) ? UCS : ID;
+  const toG = (F, l) => ({ x: F.o.x + F.ex.x*l.x + F.ey.x*l.y + F.ez.x*l.z,
+                           y: F.o.y + F.ex.y*l.x + F.ey.y*l.y + F.ez.y*l.z,
+                           z: F.o.z + F.ex.z*l.x + F.ey.z*l.y + F.ez.z*l.z });
+  const toL = (F, g) => { const d = { x: g.x-F.o.x, y: g.y-F.o.y, z: g.z-F.o.z };
+    return { x: d.x*F.ex.x + d.y*F.ex.y + d.z*F.ex.z, y: d.x*F.ey.x + d.y*F.ey.y + d.z*F.ey.z, z: d.x*F.ez.x + d.y*F.ez.y + d.z*F.ez.z }; };
+  const qmul = (a, b) => ({ w: a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z, x: a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+                            y: a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x, z: a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w });
+  const qconj = q => ({ x: -q.x, y: -q.y, z: -q.z, w: q.w });
+  function qFromBasis(ex, ey, ez) { // rotačná matica so stĺpcami ex, ey, ez -> quaternion
+    const m00=ex.x, m10=ex.y, m20=ex.z, m01=ey.x, m11=ey.y, m21=ey.z, m02=ez.x, m12=ez.y, m22=ez.z, t = m00+m11+m22;
+    let q;
+    if (t > 0) { const s = Math.sqrt(t+1)*2; q = { w: s/4, x: (m21-m12)/s, y: (m02-m20)/s, z: (m10-m01)/s }; }
+    else if (m00 > m11 && m00 > m22) { const s = Math.sqrt(1+m00-m11-m22)*2; q = { w: (m21-m12)/s, x: s/4, y: (m01+m10)/s, z: (m02+m20)/s }; }
+    else if (m11 > m22) { const s = Math.sqrt(1+m11-m00-m22)*2; q = { w: (m02-m20)/s, x: (m01+m10)/s, y: s/4, z: (m12+m21)/s }; }
+    else { const s = Math.sqrt(1+m22-m00-m11)*2; q = { w: (m10-m01)/s, x: (m02+m20)/s, y: (m12+m21)/s, z: s/4 }; }
+    const n = Math.hypot(q.x, q.y, q.z, q.w); return { x: q.x/n, y: q.y/n, z: q.z/n, w: q.w/n };
+  }
+  const norm = v => { const n = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x/n, y: v.y/n, z: v.z/n }; };
+
+  // stav -> SectionBox (stred + rozmery + quaternion), v globále
+  function toSectionBox(F = frame()) {
     const h = st.rot * Math.PI / 360;
+    const c = toG(F, { x: (st.minX+st.maxX)/2, y: (st.minY+st.maxY)/2, z: (st.minZ+st.maxZ)/2 });
+    const q = qmul(F.q, { x: 0, y: 0, z: Math.sin(h), w: Math.cos(h) });
     return {
-      positionX: (st.minX + st.maxX) / 2 * MM,
-      positionY: (st.minY + st.maxY) / 2 * MM,
-      positionZ: (st.minZ + st.maxZ) / 2 * MM,
+      positionX: c.x * MM, positionY: c.y * MM, positionZ: c.z * MM,
       sizeX: Math.max(st.maxX - st.minX, 0.001) * MM,
       sizeY: Math.max(st.maxY - st.minY, 0.001) * MM,
       sizeZ: Math.max(st.maxZ - st.minZ, 0.001) * MM,
-      rotationX: 0, rotationY: 0, rotationZ: Math.sin(h), rotationW: Math.cos(h)
+      rotationX: q.x, rotationY: q.y, rotationZ: q.z, rotationW: q.w
     };
   }
 
-  // SectionBox -> stav
-  function fromSectionBox(b) {
+  // SectionBox (globál) -> stav v aktuálnom ráme
+  function fromSectionBox(b, F = frame()) {
     if (!b) return;
-    const cx = b.positionX / MM, cy = b.positionY / MM, cz = b.positionZ / MM;
+    const c = toL(F, { x: b.positionX / MM, y: b.positionY / MM, z: b.positionZ / MM });
     const sx = b.sizeX / MM, sy = b.sizeY / MM, sz = b.sizeZ / MM;
-    Object.assign(st, { minX: cx - sx/2, maxX: cx + sx/2, minY: cy - sy/2, maxY: cy + sy/2, minZ: cz - sz/2, maxZ: cz + sz/2 });
-    // len rotácia okolo Z (Potree štýl); ak má box aj X/Y rotáciu, ignorujeme ju
-    st.rot = 2 * Math.atan2(b.rotationZ || 0, b.rotationW == null ? 1 : b.rotationW) * 180 / Math.PI;
+    Object.assign(st, { minX: c.x - sx/2, maxX: c.x + sx/2, minY: c.y - sy/2, maxY: c.y + sy/2, minZ: c.z - sz/2, maxZ: c.z + sz/2 });
+    // zvyšková rotácia okolo Z rámu (Potree štýl); prípadné ďalšie natočenie sa ignoruje
+    const qb = { x: b.rotationX || 0, y: b.rotationY || 0, z: b.rotationZ || 0, w: b.rotationW == null ? 1 : b.rotationW };
+    const r = qmul(qconj(F.q), qb);
+    st.rot = fmt(2 * Math.atan2(r.z, r.w) * 180 / Math.PI);
+    if (st.rot > 180) st.rot -= 360; if (st.rot <= -180) st.rot += 360;
     render();
   }
+
+  // --- Načítanie UCS z XYZ Measure (zdieľaný localStorage na rovnakej doméne) ---
+  const ucsKey = () => 'xyzMeasure.axis.' + projectId;
+  function parseUcs() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(ucsKey()) || 'null'); } catch {}
+    if (!s || typeof s.theta !== 'number' || !s.enabled) return null;
+    let ex, ey, ez;
+    if (s.mode === '3d' && s.ex && s.ey && s.ez) { ex = norm(s.ex); ey = norm(s.ey); ez = norm(s.ez); }
+    else { const c = Math.cos(s.theta), n = Math.sin(s.theta); ex = { x: c, y: n, z: 0 }; ey = { x: -n, y: c, z: 0 }; ez = { x: 0, y: 0, z: 1 }; }
+    const o = s.origin ? { x: s.origin.x / MM, y: s.origin.y / MM, z: s.origin.z / MM } : { x: 0, y: 0, z: 0 }; // XYZ Measure: mm
+    const deg = s.mode === '3d' ? null : ((s.theta * 180 / Math.PI) % 360);
+    return { ex, ey, ez, o, q: qFromBasis(ex, ey, ez), mode: s.mode === '3d' ? '3d' : '2d', deg, sig: JSON.stringify([s.mode, s.theta, s.ex, s.ey, s.ez, s.origin]) };
+  }
+  function refreshUcs(snap) {
+    const old = frame(), keep = toSectionBox(); // aktuálny box v globále
+    const n = parseUcs();
+    if ((n && n.sig) === (UCS && UCS.sig)) { updateUcsInfo(); return; }
+    UCS = n;
+    fromSectionBox(keep);           // prepočet do nového rámu (stred ostane)
+    if (snap && frame() !== ID) st.rot = 0; // strany boxu pozdĺž osí UCS
+    render(); updateUcsInfo();
+    if (snap && boxExists && frame() !== old) apply();
+  }
+  function updateUcsInfo() {
+    const on = frame() !== ID;
+    $('limitsHdr').textContent = on ? 'Hranice v UCS (m, od počiatku UCS)' : 'Hranice (m)';
+    $('ucsInfo').textContent = !UCS ? 'UCS nenájdený alebo nie je aktivovaný v XYZ Measure – box je v globálnych osiach.'
+      : !on ? 'UCS je k dispozícii, zarovnanie je vypnuté.'
+      : UCS.mode === '3d' ? 'Box zarovnaný s UCS (3D, naklonený).' : `Box zarovnaný s UCS (2D, X′ ${UCS.deg.toFixed(4)}°).`;
+  }
+  window.addEventListener('storage', e => { if (e.key === ucsKey()) refreshUcs(true); });
 
   async function apply() {
     if (!API) return status('Nie je spojenie s viewerom.', true);
@@ -214,7 +280,11 @@
       }
       if (!isFinite(mn[0])) return status('Výber nemá bounding box (body mračna sa takto vybrať nedajú).', true);
       const pad = parseFloat($('step').value) || 0;
-      Object.assign(st, { minX: mn[0]-pad, maxX: mx[0]+pad, minY: mn[1]-pad, maxY: mx[1]+pad, minZ: mn[2]-pad, maxZ: mx[2]+pad, rot: 0 });
+      const F = frame(), lo = [Infinity,Infinity,Infinity], hi = [-Infinity,-Infinity,-Infinity];
+      for (const X of [mn[0], mx[0]]) for (const Y of [mn[1], mx[1]]) for (const Z of [mn[2], mx[2]]) {
+        const l = toL(F, { x: X, y: Y, z: Z }); [l.x, l.y, l.z].forEach((v, i) => { lo[i] = Math.min(lo[i], v); hi[i] = Math.max(hi[i], v); });
+      }
+      Object.assign(st, { minX: lo[0]-pad, maxX: hi[0]+pad, minY: lo[1]-pad, maxY: hi[1]+pad, minZ: lo[2]-pad, maxZ: hi[2]+pad, rot: 0 });
       render(); apply();
     } catch (e) { status('Fit zlyhal: ' + (e && e.message || e), true); }
   }
@@ -303,12 +373,14 @@
     }
     const s = Math.max(viewW * (+$('scaleR').value / 100), 0.05);
     const sz = s * (+$('aspZ').value / 100);
-    const rot = ($('alignView').checked && cam && typeof cam.yaw === 'number') ? cam.yaw * 180 / Math.PI : 0;
+    const ucsOn = frame() !== ID;
+    const rot = (!ucsOn && $('alignView').checked && cam && typeof cam.yaw === 'number') ? cam.yaw * 180 / Math.PI : 0;
+    const gz = pt.z; pt = toL(frame(), pt);
     Object.assign(st, {
       minX: pt.x - s/2, maxX: pt.x + s/2, minY: pt.y - s/2, maxY: pt.y + s/2,
       minZ: pt.z - sz/2, maxZ: pt.z + sz/2, rot: ((rot + 180) % 360 + 360) % 360 - 180
     });
-    $('sliceZ').value = fmt(pt.z);
+    $('sliceZ').value = fmt(pt.z); void gz;
     render();
     await stopPick();
     await apply();
@@ -324,6 +396,7 @@
   $('rotR').addEventListener('input', () => { $('rotZ').value = $('rotR').value; schedule(); });
   $('btnApply').onclick = startPick;
   $('btnSetNums').onclick = apply;
+  $('useUcs').onchange = () => { const keep = toSectionBox($('useUcs').checked ? ID : (UCS || ID)); fromSectionBox(keep); if (frame() !== ID) st.rot = 0; render(); updateUcsInfo(); if (boxExists) apply(); };
   $('btnFitSel').onclick = fitSelection;
   $('btnRemove').onclick = async () => { try { await API.viewer.removeSectionBox(); boxExists = false; handlesOn = false; $('btnHandles').classList.remove('pri','on'); status('Box vypnutý.'); } catch (e) { status(String(e), true); } };
   $('btnHandles').onclick = async () => {
@@ -343,11 +416,11 @@
   });
   $('btnSave').onclick = () => {
     readInputs(); const name = $('presetName').value.trim() || `Box ${new Date().toLocaleString('sk-SK')}`;
-    const p = loadPresets(); p.push({ name, ...st }); savePresets(p); $('presetName').value = '';
+    const p = loadPresets(); p.push({ name, box: toSectionBox() }); savePresets(p); $('presetName').value = '';
   };
   $('presets').onclick = e => {
     const l = e.target.dataset.load, d = e.target.dataset.del, p = loadPresets();
-    if (l != null) { const { name, ...v } = p[+l]; Object.assign(st, v); render(); apply(); }
+    if (l != null) { const it = p[+l]; if (it.box) fromSectionBox(it.box); else { const { name, ...v } = it; Object.assign(st, v); render(); } apply(); }
     if (d != null) { p.splice(+d, 1); savePresets(p); }
   };
   $('btnExport').onclick = () => {
@@ -392,6 +465,7 @@
       }, 30000);
       $('conn').classList.add('on');
       try { const p = await API.project.getProject(); projectId = p.id || projectId; renderPresets(); } catch {}
+      refreshUcs(false); setInterval(() => refreshUcs(true), 1500); // záloha, ak storage event nepríde
       status('Pripojené. Stlač Aplikovať a klikni do scény.');
     } catch (e) {
       status('Nepodarilo sa pripojiť – otvor to ako extension v 3D Vieweri.', true);
