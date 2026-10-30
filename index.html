@@ -47,8 +47,7 @@
 <body>
 <header>
   <span class="dot" id="conn"></span>
-  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v6</span></h1>
-  <label class="chk"><input type="checkbox" id="live" checked> live</label>
+  <h1>Limit Box <span style="font-size:10px;color:var(--mut);font-weight:400">v7</span></h1>
 </header>
 
 <section>
@@ -56,7 +55,6 @@
   <div class="wrap">
     <button class="pri" id="btnApply">Aplikovať</button>
     <button id="btnFitSel">Na výber</button>
-    <button id="btnSetNums">Z čísel</button>
     <button id="btnRemove">Vypnúť</button>
     <button id="btnHandles">Úchyty 3D</button>
   </div>
@@ -88,42 +86,6 @@
 </section>
 
 <section>
-  <h2 id="limitsHdr">Hranice (m)</h2>
-  <div class="grid"><span></span><span class="hdr">min</span><span class="hdr">max</span></div>
-  <div class="grid"><span class="ax x">X</span><input type="number" step="0.01" id="minX"><input type="number" step="0.01" id="maxX"></div>
-  <div class="grid"><span class="ax y">Y</span><input type="number" step="0.01" id="minY"><input type="number" step="0.01" id="maxY"></div>
-  <div class="grid"><span class="ax z">Z</span><input type="number" step="0.01" id="minZ"><input type="number" step="0.01" id="maxZ"></div>
-  <div class="row"><label class="l">Rot Z°</label><input type="range" min="-180" max="180" step="0.5" id="rotR"><input type="number" step="0.5" id="rotZ" style="width:70px"></div>
-</section>
-
-<section>
-  <h2>Posun / zmena veľkosti</h2>
-  <div class="row"><label class="l">Krok</label><input type="number" step="0.01" id="step" value="0.10"><span class="hdr">m</span></div>
-  <div class="row"><span class="ax x">X</span>
-    <button class="sm" data-mv="x,-1">◀</button><button class="sm" data-mv="x,1">▶</button>
-    <button class="sm" data-gr="x,-1">−</button><button class="sm" data-gr="x,1">+</button></div>
-  <div class="row"><span class="ax y">Y</span>
-    <button class="sm" data-mv="y,-1">◀</button><button class="sm" data-mv="y,1">▶</button>
-    <button class="sm" data-gr="y,-1">−</button><button class="sm" data-gr="y,1">+</button></div>
-  <div class="row"><span class="ax z">Z</span>
-    <button class="sm" data-mv="z,-1">▼</button><button class="sm" data-mv="z,1">▲</button>
-    <button class="sm" data-gr="z,-1">−</button><button class="sm" data-gr="z,1">+</button></div>
-  <div class="hdr">◀▶ posun, −/+ zmenšiť/zväčšiť symetricky</div>
-</section>
-
-<section>
-  <h2>Výškový rez (slice)</h2>
-  <div class="row"><label class="l">Hrúbka</label><input type="number" step="0.01" id="sliceT" value="0.20"><span class="hdr">m</span></div>
-  <div class="row"><label class="l">Výška</label><input type="number" step="0.01" id="sliceZ"><span class="hdr">m</span></div>
-  <div class="wrap">
-    <button id="btnSlice">Zapnúť rez</button>
-    <button id="sliceDn">▼ o hrúbku</button>
-    <button id="sliceUp">▲ o hrúbku</button>
-  </div>
-  <div class="hdr" style="margin-top:6px"><kbd>PgUp</kbd>/<kbd>PgDn</kbd> posun rezu, keď je panel aktívny</div>
-</section>
-
-<section>
   <h2>Presety</h2>
   <div class="row"><input type="text" id="presetName" placeholder="napr. 1.NP pôdorys"><button id="btnSave">Uložiť</button></div>
   <div id="presets"></div>
@@ -144,18 +106,9 @@
   const status = (t, err, active) => { const s = $('status'); s.textContent = t; s.className = err ? 'error' : active ? 'active' : ''; };
   const fmt = v => Math.round(v * 1000) / 1000;
 
-  function render() {
-    for (const k of ['minX','maxX','minY','maxY','minZ','maxZ']) $(k).value = fmt(st[k]);
-    $('rotZ').value = fmt(st.rot); $('rotR').value = st.rot;
-  }
+  function render() {}
 
-  function readInputs() {
-    for (const k of ['minX','maxX','minY','maxY','minZ','maxZ']) {
-      const v = parseFloat($(k).value); if (!isNaN(v)) st[k] = v;
-    }
-    for (const a of ['X','Y','Z']) if (st['min'+a] > st['max'+a]) [st['min'+a], st['max'+a]] = [st['max'+a], st['min'+a]];
-    const r = parseFloat($('rotZ').value); if (!isNaN(r)) st.rot = r;
-  }
+  function readInputs() {}
 
   // stav -> SectionBox (stred + rozmery + quaternion)
   // --- Rám (globálny alebo vlastná os) ---
@@ -239,7 +192,6 @@
   }
   function updateAxisUI() {
     const on = frame() !== ID, deg = UCS ? (((UCS.theta * 180 / Math.PI) % 360) + 360) % 360 : 0;
-    $('limitsHdr').textContent = on ? 'Hranice v osiach X′Y′Z (m, od počiatku osi)' : 'Hranice (m)';
     $('axisAngle').disabled = $('btnAxisRot').disabled = $('btnAxisClear').disabled = !UCS;
     if (document.activeElement !== $('axisAngle')) $('axisAngle').value = UCS ? deg.toFixed(4) : '';
     $('axisInfo').textContent = !UCS ? 'Bez osi – box je v globálnych osiach.'
@@ -291,7 +243,6 @@
     $('btnHandles').classList.toggle('on', handlesOn);
   }
 
-  const schedule = () => { if (!$('live').checked) return; clearTimeout(applyTimer); applyTimer = setTimeout(apply, 120); };
 
   // --- Fit na výber (BIM objekty) ---
   async function fitSelection() {
@@ -309,7 +260,7 @@
         }
       }
       if (!isFinite(mn[0])) return status('Výber nemá bounding box (body mračna sa takto vybrať nedajú).', true);
-      const pad = parseFloat($('step').value) || 0;
+      const pad = 0.1;
       const F = frame(), lo = [Infinity,Infinity,Infinity], hi = [-Infinity,-Infinity,-Infinity];
       for (const X of [mn[0], mx[0]]) for (const Y of [mn[1], mx[1]]) for (const Z of [mn[2], mx[2]]) {
         const l = toL(F, { x: X, y: Y, z: Z }); [l.x, l.y, l.z].forEach((v, i) => { lo[i] = Math.min(lo[i], v); hi[i] = Math.max(hi[i], v); });
@@ -319,33 +270,6 @@
     } catch (e) { status('Fit zlyhal: ' + (e && e.message || e), true); }
   }
 
-  // --- Posun / rast ---
-  function move(axis, dir) {
-    readInputs(); const s = (parseFloat($('step').value) || 0.1) * dir, A = axis.toUpperCase();
-    if (axis !== 'z' && st.rot) { // posun v lokálnych osiach boxu
-      const r = st.rot * Math.PI / 180, dx = axis === 'x' ? Math.cos(r)*s : -Math.sin(r)*s, dy = axis === 'x' ? Math.sin(r)*s : Math.cos(r)*s;
-      st.minX += dx; st.maxX += dx; st.minY += dy; st.maxY += dy;
-    } else { st['min'+A] += s; st['max'+A] += s; }
-    render(); apply();
-  }
-  function grow(axis, dir) {
-    readInputs(); const s = (parseFloat($('step').value) || 0.1) * dir, A = axis.toUpperCase();
-    st['min'+A] -= s; st['max'+A] += s;
-    if (st['max'+A] - st['min'+A] < 0.01) { const c = (st['min'+A]+st['max'+A])/2; st['min'+A] = c-0.005; st['max'+A] = c+0.005; }
-    render(); apply();
-  }
-
-  // --- Slice ---
-  function slice(z) {
-    readInputs();
-    const t = parseFloat($('sliceT').value) || 0.2;
-    if (z == null) z = parseFloat($('sliceZ').value);
-    if (isNaN(z)) z = (st.minZ + st.maxZ) / 2;
-    st.minZ = z - t/2; st.maxZ = z + t/2;
-    $('sliceZ').value = fmt(z);
-    render(); apply();
-  }
-  const sliceStep = d => { const t = parseFloat($('sliceT').value) || 0.2; const z = parseFloat($('sliceZ').value); slice((isNaN(z) ? (st.minZ+st.maxZ)/2 : z) + d*t); };
 
   // --- Presety ---
   const key = () => 'limitbox:' + projectId;
@@ -436,7 +360,6 @@
       minX: pt.x - s/2, maxX: pt.x + s/2, minY: pt.y - s/2, maxY: pt.y + s/2,
       minZ: pt.z - sz/2, maxZ: pt.z + sz/2, rot: ((rot + 180) % 360 + 360) % 360 - 180
     });
-    $('sliceZ').value = fmt(pt.z); void gz;
     render();
     await stopPick();
     await apply();
@@ -448,10 +371,7 @@
   try { const s = JSON.parse(localStorage.getItem('limitbox:ui') || '{}'); if (s.scale) $('scaleR').value = s.scale; if (s.asp) $('aspZ').value = s.asp; $('alignView').checked = !!s.align; lbl(); } catch {}
   const saveUi = () => { try { localStorage.setItem('limitbox:ui', JSON.stringify({ scale: $('scaleR').value, asp: $('aspZ').value, align: $('alignView').checked })); } catch {} };
   $('scaleR').onchange = $('aspZ').onchange = $('alignView').onchange = saveUi;
-  ['minX','maxX','minY','maxY','minZ','maxZ','rotZ'].forEach(k => $(k).addEventListener('input', () => { if (k === 'rotZ') $('rotR').value = $('rotZ').value; schedule(); }));
-  $('rotR').addEventListener('input', () => { $('rotZ').value = $('rotR').value; schedule(); });
   $('btnApply').onclick = startPick;
-  $('btnSetNums').onclick = apply;
   $('btnAxis').onclick = startAxisPick;
   $('btnAxisRot').onclick = () => { if (UCS) setAxis(makeAxis(UCS.theta + Math.PI / 2, UCS.o, UCS.p1, UCS.p2)); };
   $('btnAxisClear').onclick = () => setAxis(null);
@@ -465,16 +385,6 @@
     else await setHandles(!handlesOn);
     status(handlesOn ? 'Úchyty zapnuté – ťahaj steny boxu v 3D.' : 'Úchyty skryté.');
   };
-  document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.mv.split(','); move(a, +d); });
-  document.querySelectorAll('[data-gr]').forEach(b => b.onclick = () => { const [a,d] = b.dataset.gr.split(','); grow(a, +d); });
-  $('btnSlice').onclick = () => slice();
-  $('sliceUp').onclick = () => sliceStep(1);
-  $('sliceDn').onclick = () => sliceStep(-1);
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
-    if (e.key === 'PageUp') { e.preventDefault(); sliceStep(1); }
-    if (e.key === 'PageDown') { e.preventDefault(); sliceStep(-1); }
-  });
   $('btnSave').onclick = () => {
     readInputs(); const name = $('presetName').value.trim() || `Box ${new Date().toLocaleString('sk-SK')}`;
     const p = loadPresets(); p.push({ name, box: toSectionBox() }); savePresets(p); $('presetName').value = '';
@@ -520,7 +430,6 @@
           else if (d.sectionBox) {
             boxExists = true;
             fromSectionBox(d.sectionBox);
-            if (d.sectionBox.sizeZ / MM < 1) $('sliceZ').value = fmt((st.minZ + st.maxZ) / 2);
             status(`Upravené v 3D: ${sizeTxt()}`);
           }
         }
